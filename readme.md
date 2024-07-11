@@ -34,8 +34,8 @@ totalsegmentator(input_path, output_path, fast = False, ml = True)
 pip install TotalSegmentator
 ```
 * 下载并解压参数
-> 在**https://github.com/wasserth/TotalSegmentator/releases/download**下载对应的参数，具体路径详见官方代码 
-> 将所有参数直接加压到某个文件夹中，解压后的目录格式为**root/TaskXXX_TotalSegmentator.../nnUNetTrainerV2_ep4000_nomirror__nnUNetPlansv2.1**
+> 1. 在[官方路径](https://github.com/wasserth/TotalSegmentator/releases/download)下载对应的参数，具体路径详见官方代码.
+> 2. 将所有参数直接加压到某个文件夹中，解压后的目录格式为**root/TaskXXX_TotalSegmentator.../nnUNetTrainerV2_ep4000_nomirror__nnUNetPlansv2.1**
 * 使用
 ```python
 infer(nii_input_path,
@@ -59,22 +59,25 @@ infer(nii_input_path,
 # 代码结构
 ## load_data
 ### 流程
-1. 加载输入数据，并根据是否使用fast模式，将数据resize到各向同性，其中fast模式下，resize后的spacing为3.0，非fast模式下位1.5
-2. 如果数据非常大(数据shape的乘积超过(256\*256\*900)且resize后层面数超过200且处于非fast模式)，则将数据沿着层面数方向等分为3份，第一份向后延伸margin层面，第二份分别向前向后延伸margin层面，第三份向前延伸margin层面。
+1. 加载输入数据，将数据resize到各向同性，其中fast模式下，resize后的spacing为3.0，非fast模式下为1.5
+2. 如果数据非常大(数据shape的乘积超过(256\*256\*900)且resize后层面数超过200且处于非fast模式)，则将数据沿着层面数方向（第三个维度）等分为3份，第一份向后延伸margin层面，第二份分别向前向后延伸margin层面，第三份向前延伸margin层面。
 3. 将上述切分或者无需切分的数据保存到临时文件夹的tmp_input目录下，记为(s01.nii.gz/s02.nii.gz/s03.nii.gz)
 
 ### 注意
 1. 数据加载过程中会使用nib.as_closest_canonical函数对数据进行调整，具体细节不甚清楚，如果没有这一步操作，最后的预测结果将会是爆炸性的失败。
+2. resize的时候需要计算zoom参数，当zoom参数的dtype不一致时，结果可能不一致，需要格外注意。
 
 ## build_model
 ### 流程
 1. 根据传入的model保存路径，加载模型初始化文件，并完成初始化。
-2. 根据传入的model保存路径，将参数加载到内存中，注意此时并没有将参数加载到模型中。
+2. 根据传入的model保存路径，将参数加载到内存中
+### 注意
+1. 上述参数加载使用的是torch.load，此时参数并没有被加载到模型中，仅仅被加载到了内存里。
 
 ## nnunet_predict
 
 ### 流程
-1. 利用多进程，对数据进行预处理(主要内容是resize，crop以及normalize，resize则是进一步保证各向同性，如果在前文的load_data中执行过resize操作，这里不会再执行，crop主要是去除resize插值时可能出现的全0情况，一般也不会出现，这个预处理实际上是NNUnet自带的预处理，由于TotalSegmentator有自己的数据处理方式，所以大多数情况下，这里的数据预处理都没什么作用，但是这里的resize中使用到了batchgenerators这个库里的函数，不确定是否是nnunet必须得)，记录原始数据结构信息，如果数据足够大(shape的乘积大于2e9 / 4 * 0.85)，则会暂时将数据保存为npy格式。
+1. 利用多进程，对数据进行预处理(主要内容是resize，crop以及normalize，resize则是进一步保证各向同性，如果在前文的load_data中执行过resize操作，这里不会再执行，crop主要是去除resize插值时可能出现的全0情况，一般也不会出现，这个预处理实际上是NNUnet自带的预处理，由于TotalSegmentator有自己的数据处理方式，所以大多数情况下，这里的数据预处理都没什么作用，但是这里的resize中使用到了batchgenerators这个库里的函数，不确定是否是nnunet必须得)，记录原始数据结构信息，如果数据足够大(shape的乘积大于2e9 / 4 * 0.85)，则会暂时将数据保存为npy格式（一般不常见）。
 2. 模型加载参数，开始预测，预测结果的输出为argmax结果。
 3. 将上述预测结果根据task保存到临时文件夹tmp_pred/task中。
 
@@ -83,13 +86,13 @@ infer(nii_input_path,
 
 ## infer
 ### 流程
-0. 初始化临时文件夹，创建tmp_input, tmp_pred两个子文件夹，并根据task_id在tmp_pred文件夹下创建task子文件夹。
-1. 利用build_mode根据task_id初始化模型。在fast模式下，task_id 为 [256], 非fast模式下为[251, 252, 253, 254, 255]。此时整个内存中会有1或者5个初始化模型，后续可以优化这一部分，当我们需要某个模型时，再单独初始化他。
+0. 初始化临时文件夹，创建tmp_input, tmp_pred两个子文件夹，并根据task_id在tmp_pred文件夹下创建task子文件夹。在fast模式下，task_id 为 [256], 非fast模式下为[251, 252, 253, 254, 255]。
+1. 利用build_mode根据task_id初始化模型。此时整个内存中会有1或者5个初始化模型，后续可以优化这一部分，当我们需要某个模型时，再单独初始化他。
 2. 利用load_data对数据进行预处理，将其保存到tmp_input中。
-3. 利用nnunet_predict进行数据预测，并将结果保存到tmp_pred中。需要说明的是，如果数据足够大，被切分为3份(分别记为s01, s02, s03)，同时使用5个模型进行预测，nnunet_predict会产生15个结果，根据task，分别保存在5个文件夹内。
+3. 利用nnunet_predict进行数据预测，并将结果保存到tmp_pred中。需要说明的是，如果数据足够大，被切分为3份，同时使用5个模型进行预测，nnunet_predict会产生15个结果，根据task，分别保存在5个文件夹内，每个文件夹中保存3部分结果。
 4. 对上述结果进行后处理，后处理主要包含3部分：
-   1. 标签合并：当使用5个模型预测时，需要将前文的5个task结果根据class_map文件中提供的转换规则进行合并
-   2. 数据拼接：当数据被切分为3份后，需要将其拼接位完整数据
+   1. 标签合并：当使用5个模型预测时，需要将前文的5个task结果根据class_map.py文件中提供的标签对应规则进行合并
+   2. 数据拼接：当数据被切分为3份后，需要将其拼接为完整数据
    3. 逆变换：将预测结果resize回原始数据的spacing，同时执行as_closest_canonical的逆向操作
 5. 清空临时文件夹
 
