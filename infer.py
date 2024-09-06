@@ -219,7 +219,7 @@ class Infer(object):
         print("------Resample Reverse------")
         pred_seg = self.dataloader.change_sacping(
             tmp_pred_seg,
-            new_size=img_in_ori.shape,
+            new_size=img_in.shape,
             order=0,
             force_affine=img_in.affine,
             dtype=np.uint8,
