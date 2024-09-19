@@ -226,6 +226,11 @@ class Infer(object):
         )
         pred_seg = self.undo_canonical(pred_seg, img_in_ori)
         print("------Saving Result------")
+        # sometimes, the nib obj may not loaded by simpleitk, we need modify its qform/sform
+        qform = pred_seg.get_qform()
+        pred_seg.set_qform(qform)
+        sform = pred_seg.get_sform()
+        pred_seg.set_sform(sform)
         nib.save(pred_seg, self.nii_out_path)
         print("------Clean TMP Folder------")
         self.clean_tmp_folder()
